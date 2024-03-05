@@ -56,6 +56,7 @@ const (
 	// OCSPFailOpenFalse represents OCSP fail closed mode.
 	OCSPFailOpenFalse
 )
+
 const (
 	ocspModeFailOpen   = "FAIL_OPEN"
 	ocspModeFailClosed = "FAIL_CLOSED"
@@ -377,7 +378,8 @@ func checkOCSPCacheServer(
 	ocspServerHost *url.URL,
 	totalTimeout time.Duration) (
 	cacheContent *map[string]*certCacheValue,
-	ocspS *ocspStatus) {
+	ocspS *ocspStatus,
+) {
 	var respd map[string][]interface{}
 	headers := make(map[string]string)
 	res, err := newRetryHTTP(ctx, client, req, ocspServerHost, headers, totalTimeout, defaultMaxRetryCount, defaultTimeProvider, nil).execute()
@@ -436,7 +438,8 @@ func retryOCSP(
 	totalTimeout time.Duration) (
 	ocspRes *ocsp.Response,
 	ocspResBytes []byte,
-	ocspS *ocspStatus) {
+	ocspS *ocspStatus,
+) {
 	multiplier := 1
 	if atomic.LoadUint32((*uint32)(&ocspFailOpen)) == (uint32)(OCSPFailOpenFalse) {
 		multiplier = 3 // up to 3 times for Fail Close mode
@@ -490,7 +493,8 @@ func fallbackRetryOCSPToGETRequest(
 	totalTimeout time.Duration) (
 	ocspRes *ocsp.Response,
 	ocspResBytes []byte,
-	ocspS *ocspStatus) {
+	ocspS *ocspStatus,
+) {
 	multiplier := 1
 	if atomic.LoadUint32((*uint32)(&ocspFailOpen)) == (uint32)(OCSPFailOpenFalse) {
 		multiplier = 3 // up to 3 times for Fail Close mode
@@ -926,7 +930,6 @@ func extractOCSPCacheResponseValue(certCacheValue *certCacheValue, subject, issu
 		}
 		// check the revocation status here
 		ocspResponse, err := ocsp.ParseResponse(b, issuer)
-
 		if err != nil {
 			logger.Warnf("the second cache element is not a valid OCSP Response. Ignored. subject: %v\n", subjectName)
 			return &ocspStatus{
@@ -948,7 +951,7 @@ func writeOCSPCacheFile() {
 	}
 	logger.Infof("writing OCSP Response cache file. %v\n", cacheFileName)
 	cacheLockFileName := cacheFileName + ".lck"
-	err := os.Mkdir(cacheLockFileName, 0600)
+	err := os.Mkdir(cacheLockFileName, 0o600)
 	switch {
 	case os.IsExist(err):
 		statinfo, err := os.Stat(cacheLockFileName)
@@ -964,7 +967,7 @@ func writeOCSPCacheFile() {
 			logger.Debugf("failed to delete lock file. file: %v, err: %v. ignored.\n", cacheLockFileName, err)
 			return
 		}
-		if err = os.Mkdir(cacheLockFileName, 0600); err != nil {
+		if err = os.Mkdir(cacheLockFileName, 0o600); err != nil {
 			logger.Debugf("failed to create lock file. file: %v, err: %v. ignored.\n", cacheLockFileName, err)
 			return
 		}
@@ -987,7 +990,7 @@ func writeOCSPCacheFile() {
 		logger.Debugf("failed to convert OCSP Response cache to JSON. ignored.")
 		return
 	}
-	if err = os.WriteFile(cacheFileName, j, 0644); err != nil {
+	if err = os.WriteFile(cacheFileName, j, 0o644); err != nil {
 		logger.Debugf("failed to write OCSP Response cache. err: %v. ignored.\n", err)
 	}
 }
@@ -1085,6 +1088,8 @@ var SnowflakeTransport = &http.Transport{
 		Timeout:   30 * time.Second,
 		KeepAlive: 30 * time.Second,
 	}).DialContext,
+	TLSHandshakeTimeout:   10 * time.Second,
+	ExpectContinueTimeout: 1 * time.Second,
 }
 
 // SnowflakeTransportTest includes the certificate revocation check in parallel
